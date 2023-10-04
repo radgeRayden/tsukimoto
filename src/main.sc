@@ -12,6 +12,26 @@ type+ mat4
             vec4 0   0   1   0
             vec4 v.x v.y v.z 1
 
+    inline... rotation (v : vec3)
+        x y z := unpack v
+        cx cy cz := va-map cos x y z
+        sx sy sz := va-map sin x y z
+        m00 := cx * cy
+        m01 := cx * sy * sz - sx * cz
+        m02 := cx * sy * cz - sx * sz
+        m10 := sx * cy
+        m11 := sx * sy * sz + cx * cz
+        m12 := sx * cy * cz - cx * sz
+        m20 := -sy
+        m21 := cx * sz
+        m22 := cy * cz
+
+        mat4
+            vec4 m00 m01 m02 0.0
+            vec4 m10 m11 m12 0.0
+            vec4 m20 m21 m22 0.0
+            vec4 0.0 0.0 0.0 1.0
+
 @@ 'on bottle.configure
 fn (cfg)
     cfg.window.title = "tsukimoto"
@@ -23,7 +43,6 @@ struct VertexAttributes plain
 
 struct Uniforms plain
     mvp : mat4
-    time : f32
 
 struct GraphicsContext
     mesh-vertices : (StorageBuffer VertexAttributes)
@@ -87,7 +106,7 @@ fn ()
                 VertexAttributes
                     position = v
                     texcoords = (vec2 1)
-                    color = (vec4 1)
+                    color = (vec4 (v + (vec3 0.5)) 1)
 
         local indices : (Array u16) \
             2 0 1 2 1 3 \ # front
@@ -142,10 +161,15 @@ fn ()
     ctx := 'force-unwrap gfx-context
     rp := RenderPass (bottle.gpu.get-cmd-encoder) (ColorAttachment (bottle.gpu.get-swapchain-image) (clear? = false))
 
-    aspect-ratio := / (bottle.window.get-size)
-    projection := bottle.math.perspective-projection aspect-ratio (pi / 2) 100.0 0.001
-    mvp := projection * (mat4.translation (vec3))
-    uniforms := (Uniforms mvp ((bottle.time.get-time) as f32))
+    w h := va-map f32 (bottle.window.get-size)
+    time := (bottle.time.get-time)
+
+    projection := bottle.math.perspective-projection w h (pi / 2) 1.0
+    camera := mat4.translation (vec3 0 0 -4)
+    model := mat4.rotation (vec3 0 (pi * (f32 time)) 0)
+
+    mvp :=  projection * camera * model
+    uniforms := (Uniforms mvp)
     'frame-write ctx.uniforms uniforms
 
     'set-pipeline rp ctx.pipeline
