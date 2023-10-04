@@ -50,6 +50,7 @@ struct GraphicsContext
     uniforms : (UniformBuffer Uniforms)
     pipeline : RenderPipeline
     bind-group : BindGroup
+    depth-stencil-view : TextureView
 
 global gfx-context : (Option GraphicsContext)
 
@@ -143,6 +144,11 @@ fn ()
                                 ColorTarget
                                     format = (bottle.gpu.get-preferred-surface-format)
                 msaa-samples = (bottle.gpu.get-msaa-sample-count)
+                true
+
+        w h := va-map u32 (bottle.window.get-size)
+        depth-stencil-texture :=
+            Texture w h TextureFormat.Depth32FloatStencil8 (render-target? = true)
 
         gfx-context =
             GraphicsContext
@@ -151,6 +157,7 @@ fn ()
                 uniforms = uniform-buffer
                 pipeline = pipeline
                 bind-group = BindGroup ('get-bind-group-layout pipeline 0) uniform-buffer storage-buffer
+                depth-stencil-view = (TextureView depth-stencil-texture)
     else ()
 
 @@ 'on bottle.update
@@ -159,7 +166,7 @@ fn (dt)
 @@ 'on bottle.render
 fn ()
     ctx := 'force-unwrap gfx-context
-    rp := RenderPass (bottle.gpu.get-cmd-encoder) (ColorAttachment (bottle.gpu.get-swapchain-image) (clear? = false))
+    rp := RenderPass (bottle.gpu.get-cmd-encoder) (ColorAttachment (bottle.gpu.get-swapchain-image) (clear? = false)) ctx.depth-stencil-view
 
     w h := va-map f32 (bottle.window.get-size)
     time := (bottle.time.get-time)
