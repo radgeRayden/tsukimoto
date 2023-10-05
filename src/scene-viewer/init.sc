@@ -163,6 +163,8 @@ fn ()
 @@ 'on bottle.update
 fn (dt)
 
+fn render-UI ()
+
 @@ 'on bottle.render
 fn ()
     ctx := 'force-unwrap gfx-context
@@ -185,6 +187,8 @@ fn ()
 
     'draw-indexed rp 36:u32 1:u32
     'finish rp
+
+    render-UI;
     ()
 
 
