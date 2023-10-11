@@ -1,0 +1,41 @@
+VERSION := "v5.3.1"
+SUMMARY := "Open-Asset-Importer-Library. Loads 40+ 3D-file-formats into one unified and clean data structure."
+source-path := (commonpath (extract (download "https://github.com/assimp/assimp/archive/{VERSION}.tar.gz")))
+
+fn preinstall-dir (generator)
+    then
+        cmd :=
+            shell
+                mkdir "{source-path}/build"
+        install-dir := (tempdir)
+        cmd "cmake .. -G \"{generator}\" -DCMAKE_INSTALL_PREFIX={install-dir}"
+        cmd "make -j {cpu-core-count} config=release"
+        cmd "make install"
+        install-dir
+
+# bindings :=
+#     download "https://raw.githubusercontent.com/ScopesCommunity/eo-packages/main/bindings/assimp.sc"
+
+license := (download "https://raw.githubusercontent.com/assimp/assimp/master/LICENSE")
+
+package assimp
+    summary SUMMARY
+    version VERSION
+    platform linux unknown
+
+    preinstall-dir := (preinstall-dir "Unix Makefiles")
+    alias "lib/libassimp.so" "{preinstall-dir}/lib/libassimp.so"
+    in "/include" "{preinstall-dir}/include/assimp"
+    # alias "/lib/scopes/packages/assimp.sc" bindings
+    alias "/licenses/assimp.txt" license
+
+package assimp
+    summary SUMMARY
+    version VERSION
+    platform windows-mingw
+
+    preinstall-dir := (preinstall-dir "MSYS Makefiles")
+    alias "lib/assimp.dll" "{preinstall-dir}/bin/assimp.dll"
+    in "/include" "{preinstall-dir}/include/assimp"
+    # alias "/lib/scopes/packages/assimp.sc" bindings
+    alias "/licenses/assimp.txt" license
