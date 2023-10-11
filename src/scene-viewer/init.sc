@@ -1,8 +1,9 @@
-using import Array glm Option struct
+using import Array glm Option String struct
 
-import bottle
+import ..assimp bottle
 using bottle.types
 using bottle.enums
+ig := bottle.imgui
 
 type+ mat4
     inline... translation (v : vec3)
@@ -52,6 +53,10 @@ struct GraphicsContext
     bind-group : BindGroup
     depth-stencil-view : TextureView
 
+    scene-vertices : (StorageBuffer VertexAttributes)
+    scene-indices : (IndexBuffer u32)
+    scene-transform : mat4
+
 global gfx-context : (Option GraphicsContext)
 
 fn shaderf-vert ()
@@ -75,7 +80,8 @@ fn shaderf-vert ()
     v := data.attributes @ idx
 
     # vtexcoords = v.texcoords
-    vcolor = v.color
+    ndc-pos := uniforms.mvp * (vec4 v.position 1.0)
+    vcolor = (vec4 ((vec3 ndc-pos.z) / 10) 1.0)
     gl_Position = uniforms.mvp * (vec4 v.position 1.0)
 
 fn shaderf-frag ()
@@ -90,6 +96,11 @@ fn shaderf-frag ()
 
 @@ 'on bottle.load
 fn ()
+    IO := (ig.GetIO)
+    IO.FontGlobalScale = 2.0
+    style := (ig.GetStyle)
+    ig.StyleColorsLight style
+
     try
         local vertices : (array vec3 8)
             vec3 -0.5 -0.5 -0.5 # blf
@@ -150,20 +161,86 @@ fn ()
         depth-stencil-texture :=
             Texture w h TextureFormat.Depth32FloatStencil8 (render-target? = true)
 
+        scene := (assimp.ImportFile (module-dir .. "/models/sketchfab/frank.glb") assimp.PostProcessSteps.MakeLeftHanded)
+        mesh := scene.mMeshes @ 0
+        mesh-vertices := (StorageBuffer VertexAttributes) mesh.mNumVertices
+        mesh-indices := (IndexBuffer u32) (mesh.mNumFaces * 3)
+
+        local vertices : (Array VertexAttributes)
+        for i in (range mesh.mNumVertices)
+            p := mesh.mVertices @ i
+            'append vertices
+                VertexAttributes
+                    position = vec3 p.x p.y p.z
+                    color = (vec4 (vec3 p.x p.y p.z) 1)
+        'frame-write mesh-vertices vertices
+
+        local indices : (Array u32)
+        for i in (range mesh.mNumFaces)
+            f := mesh.mFaces @ i
+            va-map
+                inline (i)
+                    'append indices (f.mIndices @ i)
+                va-range 3
+        'frame-write mesh-indices indices
+        inline mat4-from-transform (t)
+            transpose
+                mat4
+                    va-map
+                        inline (fT)
+                            k := keyof fT
+                            getattr t k
+                        elementsof assimp.Matrix4x4
+
+        fn find-mesh-node (node)
+            returning (mutable@ assimp.Node)
+            if (node.mNumMeshes > 0)
+                node
+            else
+                for i in (range node.mNumChildren)
+                    result := this-function (node.mChildren @ i)
+                    if (result != null)
+                        return result
+                null
+
+        mesh-node := find-mesh-node scene.mRootNode
+        print (String mesh-node.mName.data mesh-node.mName.length)
+        let scene-transform =
+            loop (transform node = (mat4-from-transform mesh-node.mTransformation) mesh-node)
+                if (node.mParent == null)
+                    break transform
+                print (String node.mParent.mName.data node.mParent.mName.length)
+                _ (* (mat4-from-transform node.mParent.mTransformation) transform) (deref node.mParent)
+
         gfx-context =
             GraphicsContext
                 mesh-vertices = storage-buffer
                 mesh-indices = index-buffer
                 uniforms = uniform-buffer
                 pipeline = pipeline
-                bind-group = BindGroup ('get-bind-group-layout pipeline 0) uniform-buffer storage-buffer
+                bind-group = BindGroup ('get-bind-group-layout pipeline 0) uniform-buffer mesh-vertices
                 depth-stencil-view = (TextureView depth-stencil-texture)
+
+                scene-vertices = mesh-vertices
+                scene-indices = mesh-indices
+
+                scene-transform = scene-transform
+
+
     else ()
 
 @@ 'on bottle.update
 fn (dt)
 
+struct GuiState plain
+    scene-selector-open? : bool = true
+
+global gui-state : GuiState
+
 fn render-UI ()
+    if gui-state.scene-selector-open?
+        ig.Begin "Scene Selector" &gui-state.scene-selector-open? 0
+        ig.End;
 
 @@ 'on bottle.render
 fn ()
@@ -175,17 +252,18 @@ fn ()
 
     projection := bottle.math.perspective-projection w h (pi / 2) 1.0
     camera := mat4.translation (vec3 0 0 -4)
-    model := mat4.rotation (vec3 0 (pi * (f32 time)) 0)
+    model :=
+        * (mat4.rotation (vec3 0 time 0)) ctx.scene-transform
 
     mvp :=  projection * camera * model
     uniforms := (Uniforms mvp)
     'frame-write ctx.uniforms uniforms
 
     'set-pipeline rp ctx.pipeline
-    'set-index-buffer rp ctx.mesh-indices
+    'set-index-buffer rp ctx.scene-indices
     'set-bind-group rp 0 ctx.bind-group
 
-    'draw-indexed rp 36:u32 1:u32
+    'draw-indexed rp ((usize ctx.scene-indices.Capacity) as u32) 1:u32
     'finish rp
 
     render-UI;

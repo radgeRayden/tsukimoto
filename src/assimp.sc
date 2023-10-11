@@ -11,6 +11,11 @@ using import Array slice
 let header =
     include
         """"#include <assimp/types.h>
+            #include <assimp/matrix4x4.h>
+            #include <assimp/mesh.h>
+            #include <assimp/postprocess.h>
+            #include <assimp/scene.h>
+            #include <assimp/vector3.h>
             #include <assimp/cfileio.h>
             #include <assimp/cexport.h>
             #include <assimp/cimport.h>
