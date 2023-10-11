@@ -161,7 +161,8 @@ fn ()
         depth-stencil-texture :=
             Texture w h TextureFormat.Depth32FloatStencil8 (render-target? = true)
 
-        scene := (assimp.ImportFile (module-dir .. "/models/sketchfab/frank.glb") assimp.PostProcessSteps.MakeLeftHanded)
+        import ..importer
+        scene := importer.load-scene "/assets/frank.glb"
         mesh := scene.mMeshes @ 0
         mesh-vertices := (StorageBuffer VertexAttributes) mesh.mNumVertices
         mesh-indices := (IndexBuffer u32) (mesh.mNumFaces * 3)
