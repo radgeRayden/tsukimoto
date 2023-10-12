@@ -102,9 +102,24 @@ fn fclose (io file)
 
 do
     fn load-scene (path)
+        # TODO: add a non-realtime mode that does more expensive optimizations, including meshoptimizer support
         local io : assimp.FileIO
             OpenProc = fopen
             CloseProc = fclose
 
-        assimp.ImportFileEx path 0 &io
+        IF := assimp.PostProcessSteps
+        let flags =
+            | IF.CalcTangentSpace
+                IF.JoinIdenticalVertices
+                IF.MakeLeftHanded
+                IF.Triangulate
+                IF.SplitLargeMeshes
+                IF.SortByPType
+                IF.RemoveRedundantMaterials
+                # NOTE: try disabling these if scene switching is too slow RT.
+                IF.OptimizeMeshes
+                IF.OptimizeGraph
+                IF.GenBoundingBoxes
+
+        assimp.ImportFileEx path flags &io
     local-scope;

@@ -49,4 +49,36 @@ for k v in exports
         for sym in old-symbols
             sc_type_del_symbol T sym
 
+inline make-unpack (T)
+    inline (x)
+        va-map
+            (field) -> (getattr x (keyof field))
+            elementsof T
+
+using import glm
+
+inline augment-matrix (T MT)
+    type+ T
+        __unpack := (make-unpack T)
+
+        inline __imply (thisT otherT)
+            static-if (otherT == MT)
+                inline (self)
+                    transpose (MT (unpack self))
+
+inline augment-vector (T VT)
+    type+ T
+        __unpack := (make-unpack T)
+
+        inline __imply (thisT otherT)
+            static-if (otherT == VT)
+                inline (self)
+                    VT (unpack self)
+
+augment-matrix exports.Matrix3x3 mat3
+augment-matrix exports.Matrix4x4 mat4
+augment-vector exports.Vector2D vec2
+augment-vector exports.Vector3D vec3
+augment-vector exports.Color4D vec4
+
 exports
