@@ -77,7 +77,6 @@ fn render-UI (ctx)
         is-selected? := idx == ctx.selected-scene
         if (ig.Selectable_Bool f"${display-name}##${idx}" is-selected? 0 (ig.Vec2))
             ctx.selected-scene = idx
-            print path
             import-selected-scene;
 
     ig.EndListBox;

@@ -35,6 +35,8 @@ struct RendererState
     render-objects : (Array RenderObject)
     render-list : (Array InstancedDraw)
 
+    outdated-scene-data? : bool
+
 global renderer-state : (Option RendererState)
 
 fn init ()
@@ -149,6 +151,11 @@ fn load-scene (scene-data)
         (x) -> x.mesh-index
 
     'resize ctx.transform-data MAX-TRANSFORM-COUNT
+
+    ctx.outdated-scene-data? = true
+    ()
+
+fn update-render-data (ctx)
     # count instances and generate render commands
     for idx obj in (enumerate ctx.render-objects)
         ctx.transform-data @ idx = obj.transform
@@ -164,7 +171,6 @@ fn load-scene (scene-data)
         cmd.instance-count += 1
 
     'frame-write ctx.transforms ctx.transform-data
-    ()
 
 fn render-scene ()
     ctx := 'force-unwrap renderer-state
@@ -189,6 +195,10 @@ fn render-scene ()
         (first-instance + cmd.instance-count) as u32
 
     'finish rp
+
+    if ctx.outdated-scene-data?
+        update-render-data ctx
+        ctx.outdated-scene-data? = false
 
 do
     let init load-scene render-scene
