@@ -175,6 +175,10 @@ fn update-render-data (ctx)
 fn render-scene ()
     ctx := 'force-unwrap renderer-state
 
+    if ctx.outdated-scene-data?
+        update-render-data ctx
+        ctx.outdated-scene-data? = false
+
     w h := va-map f32 (bottle.window.get-size)
     projection := bottle.math.perspective-projection w h (pi / 2) 1.0
     camera := mat4.translation (vec3 0 0 -4)
@@ -195,10 +199,6 @@ fn render-scene ()
         (first-instance + cmd.instance-count) as u32
 
     'finish rp
-
-    if ctx.outdated-scene-data?
-        update-render-data ctx
-        ctx.outdated-scene-data? = false
 
 do
     let init load-scene render-scene
