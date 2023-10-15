@@ -81,6 +81,7 @@ fn load-scene (scene-data)
     'clear ctx.render-objects
     'clear ctx.render-list
     'clear ctx.mesh-index-map
+    'clear ctx.vertex-data
 
     for i in (range scene-data.mNumMeshes)
         mesh-data := scene-data.mMeshes @ i
@@ -105,6 +106,7 @@ fn load-scene (scene-data)
             if ((mesh-data.mColors @ 0) != null)
                 for idx v in (enumerate ctx.vertex-data)
                     v.color = (mesh-data.mColors @ 0) @ idx
+                    v.color.w = 1
 
             if ((mesh-data.mTextureCoords @ 0) != null)
                 for idx v in (enumerate ctx.vertex-data)

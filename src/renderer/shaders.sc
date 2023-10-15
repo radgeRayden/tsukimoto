@@ -29,7 +29,7 @@ do
         transform := transforms.data @ gl_InstanceIndex
 
         # vtexcoords = v.texcoords
-        vcolor = (vec4 v.normal 1)
+        vcolor = v.color
         gl_Position = uniforms.view-projection * transform * (vec4 v.position 1.0)
 
     fn default-frag ()
