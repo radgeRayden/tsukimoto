@@ -1,4 +1,4 @@
-using import Array glm Map Option struct
+using import Array Buffer glm Map Option String struct
 import ..assimp bottle .shaders
 using import .common
 
@@ -9,40 +9,54 @@ using bottle.enums
 # FIXME: add draw call splitting
 MAX-TRANSFORM-COUNT := 65536 // (sizeof mat4)
 
+struct Material
+    color-map : (Option TextureView)
+
 struct Mesh
     vertices : (StorageBuffer VertexAttributes)
     indices : (IndexBuffer u32)
+    material-index : u32
 
 struct RenderObject plain
     mesh-index : usize
     transform : mat4
 
+struct ShaderBindings
+    object-data : BindGroup
+    material-data : BindGroup
+    global-uniforms : BindGroup
+
 struct InstancedDraw
     bind-group : BindGroup
-    instance-count : usize
+    pipeline : RenderPipeline
+    instance-count : u32
 
 struct RendererState
     pipeline : RenderPipeline
+    textured-pipeline : RenderPipeline
+    sampler : Sampler
     depth-stencil-view : TextureView
+    textures : (Array Texture)
     meshes : (Array Mesh)
+    materials : (Array Material)
     uniforms : (UniformBuffer Uniforms)
     transforms : (UniformBuffer mat4)
     mesh-index-map : (Map u32 u32)
+    texture-index-map : (Map String u32)
 
     vertex-data : (Array VertexAttributes)
     index-data : (Array u32)
     transform-data : (Array mat4)
     render-objects : (Array RenderObject)
     render-list : (Array InstancedDraw)
+    AABB-min : vec3
+    AABB-max : vec3
 
     outdated-scene-data? : bool
 
 global renderer-state : (Option RendererState)
 
-fn init ()
-    vert := ShaderModule shaders.default-vert ShaderLanguage.SPIRV ShaderStage.Vertex
-    frag := ShaderModule shaders.default-frag ShaderLanguage.SPIRV ShaderStage.Fragment
-
+inline gen-pipeline (vert frag)
     pipeline :=
         RenderPipeline
             layout = (nullof PipelineLayout)
@@ -63,6 +77,15 @@ fn init ()
             msaa-samples = (bottle.gpu.get-msaa-sample-count)
             true
 
+fn init ()
+    vert := ShaderModule shaders.default-vert ShaderLanguage.SPIRV ShaderStage.Vertex
+    frag := ShaderModule shaders.default-frag ShaderLanguage.SPIRV ShaderStage.Fragment
+    pipeline := gen-pipeline vert frag
+
+    vert := ShaderModule shaders.textured-vert ShaderLanguage.SPIRV ShaderStage.Vertex
+    frag := ShaderModule shaders.textured-frag ShaderLanguage.SPIRV ShaderStage.Fragment
+    textured-pipeline := gen-pipeline vert frag
+
     w h := va-map u32 (bottle.window.get-size)
     depth-stencil-texture :=
         Texture w h TextureFormat.Depth32FloatStencil8 (render-target? = true)
@@ -70,9 +93,31 @@ fn init ()
     renderer-state =
         RendererState
             pipeline = pipeline
+            textured-pipeline = textured-pipeline
+            sampler = (Sampler)
             uniforms = typeinit 1
             transforms = typeinit MAX-TRANSFORM-COUNT
             depth-stencil-view = (TextureView depth-stencil-texture)
+
+fn assimp-load-texture (ctx data)
+    compressed? := data.mHeight == 0
+    texels := data.pcData as (mutable@ u8)
+    if (data.mFilename.length > 0)
+        'set ctx.texture-index-map (String data.mFilename.data data.mFilename.length) (u32 (countof ctx.textures))
+    if (not compressed?)
+        w h channels := _ (u32 data.mWidth) (u32 data.mHeight) 4
+        buf := (Buffer (mutable@ u8)) texels (* w h channels) nodrop
+        img-data := ImageData w h 1:u32 none TextureFormat.BGRA8UnormSrgb
+        buffercopy img-data.data buf
+
+        Texture w h TextureFormat.BGRA8UnormSrgb img-data
+    else
+        format := 'from-rawstring String data.achFormatHint
+        if ((format == "jpg") or (format == "png"))
+            buf := (Buffer (mutable@ u8)) texels data.mWidth nodrop
+            img-data := bottle.asset.load-image buf
+            Texture img-data.width img-data.height TextureFormat.RGBA8UnormSrgb img-data
+        else (assert false "format not supported")
 
 fn load-scene (scene-data)
     ctx := 'force-unwrap renderer-state
@@ -81,7 +126,49 @@ fn load-scene (scene-data)
     'clear ctx.render-objects
     'clear ctx.render-list
     'clear ctx.mesh-index-map
+    'clear ctx.texture-index-map
     'clear ctx.vertex-data
+    'clear ctx.materials
+    'clear ctx.textures
+
+    ctx.AABB-min = (vec3)
+    ctx.AABB-max = (vec3)
+
+    for i in (range scene-data.mNumTextures)
+        'append ctx.textures (assimp-load-texture ctx (scene-data.mTextures @ i))
+
+    for i in (range scene-data.mNumMaterials)
+        material := scene-data.mMaterials @ i
+
+        local texture-stacks = arrayof assimp.TextureType 'BASE_COLOR 'EMISSIVE
+
+        vvv bind texture-found?
+        fold (any-textures? = false) for texture-stack in texture-stacks
+            texture-count := assimp.GetMaterialTextureCount material texture-stack
+            if (texture-count > 0)
+                local path : assimp.String
+                local flags : u32
+                # TODO: failure handling
+                assimp.GetMaterialTexture material texture-stack 0 &path null null null null null &flags
+                assert path.length
+
+                let texture-index =
+                    if ((path.data @ 0) == "*")
+                        sscanf := . (import C.bindings) extern sscanf
+                        local idx : u32
+                        assert (sscanf path.data "*%u" &idx)
+                        copy idx
+                    else
+                        'getdefault ctx.texture-index-map (String path.data path.length) 0:u32
+
+                'append ctx.materials
+                    Material
+                        color-map = TextureView (ctx.textures @ texture-index)
+                break true
+            false
+
+        if (not texture-found?)
+            'append ctx.materials (Material)
 
     for i in (range scene-data.mNumMeshes)
         mesh-data := scene-data.mMeshes @ i
@@ -95,6 +182,7 @@ fn load-scene (scene-data)
             Mesh
                 vertices = typeinit vertex-count
                 indices = typeinit index-count
+                material-index = mesh-data.mMaterialIndex
         'set ctx.mesh-index-map (u32 i) (u32 (countof ctx.meshes))
 
         label copy-vertices
@@ -162,16 +250,38 @@ fn update-render-data (ctx)
     for idx obj in (enumerate ctx.render-objects)
         ctx.transform-data @ idx = obj.transform
         if ((countof ctx.render-list) == obj.mesh-index)
-            'append ctx.render-list
-                InstancedDraw
-                    bind-group =
-                        BindGroup ('get-bind-group-layout ctx.pipeline 0)
-                            ctx.uniforms
-                            ctx.transforms
-                            (ctx.meshes @ obj.mesh-index) . vertices
+            mesh := ctx.meshes @ obj.mesh-index
+            material := ctx.materials @ mesh.material-index
+            let cmd =
+                try ('unwrap material.color-map)
+                then (color-map)
+                    InstancedDraw
+                        bind-group =
+                            BindGroup ('get-bind-group-layout ctx.textured-pipeline 0)
+                                ctx.uniforms
+                                ctx.transforms
+                                mesh.vertices
+                                ctx.sampler
+                                color-map
+                        pipeline = copy ctx.textured-pipeline
+                else
+                    InstancedDraw
+                        bind-group =
+                            BindGroup ('get-bind-group-layout ctx.pipeline 0)
+                                ctx.uniforms
+                                ctx.transforms
+                                mesh.vertices
+                        pipeline = copy ctx.pipeline
+
+            'append ctx.render-list cmd
         cmd := 'last ctx.render-list
         cmd.instance-count += 1
 
+        # mesh := scene-data.mMeshes @ obj.mesh-index
+        # AABB-min := (vec4 (imply mesh.mAABB.mMin vec3) 1) * obj.transform
+        # AABB-max := (vec4 (imply mesh.mAABB.mMax vec3) 1) * obj.transform
+        # ctx.AABB-min = min ctx.AABB-min AABB-min.xyz
+        # ctx.AABB-max = max ctx.AABB-max AABB-max.xyz
     'frame-write ctx.transforms ctx.transform-data
 
 fn render-scene ()
@@ -192,13 +302,13 @@ fn render-scene ()
     'frame-write ctx.uniforms uniforms
 
     rp := RenderPass (bottle.gpu.get-cmd-encoder) (ColorAttachment (bottle.gpu.get-swapchain-image) (clear? = false)) ctx.depth-stencil-view
-    'set-pipeline rp ctx.pipeline
     fold (first-instance = 0:u32) for idx cmd in (enumerate ctx.render-list)
         mesh := ctx.meshes @ idx
+        'set-pipeline rp cmd.pipeline
         'set-index-buffer rp mesh.indices
         'set-bind-group rp 0 cmd.bind-group
-        'draw-indexed rp ((usize mesh.indices.Capacity) as u32) (u32 cmd.instance-count) (first-instance = first-instance)
-        (first-instance + cmd.instance-count) as u32
+        'draw-indexed rp ((usize mesh.indices.Capacity) as u32) cmd.instance-count (first-instance = first-instance)
+        first-instance + cmd.instance-count
 
     'finish rp
 
