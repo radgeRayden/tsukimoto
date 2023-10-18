@@ -36,12 +36,14 @@ fn import-selected-scene ()
     if (empty? ctx.scene-files)
         return;
 
-    scene-data := importer.load-scene (ctx.scene-files @ ctx.selected-scene)
-    try (renderer.load-scene scene-data)
+    try
+        importer.load-model (ctx.scene-files @ ctx.selected-scene)
+    then (scene-data)
+        try (renderer.load-scene scene-data)
+        else ()
+        # FIXME: manage this automatically
+        assimp.ReleaseImport scene-data
     else ()
-
-    # FIXME: manage this automatically
-    assimp.ReleaseImport scene-data
 
 @@ 'on bottle.load
 fn ()
