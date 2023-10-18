@@ -11,6 +11,8 @@ using import Array slice
 let header =
     include
         """"#include <assimp/types.h>
+            #include <assimp/aabb.h>
+            #include <assimp/material.h>
             #include <assimp/matrix4x4.h>
             #include <assimp/mesh.h>
             #include <assimp/postprocess.h>
@@ -26,6 +28,7 @@ do
     using header.struct filter "^ai(.+)$"
     using header.enum filter "^ai(.+)$"
     using header.typedef filter "^ai(.+)$"
+    using header.define filter "^(_AI_.+|AI_.+)$"
 
     local-scope;
 
