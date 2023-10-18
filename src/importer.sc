@@ -112,6 +112,7 @@ do
             | IF.CalcTangentSpace
                 IF.JoinIdenticalVertices
                 IF.MakeLeftHanded
+                IF.FlipUVs
                 IF.Triangulate
                 IF.SplitLargeMeshes
                 IF.SortByPType
