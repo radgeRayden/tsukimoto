@@ -62,6 +62,7 @@ fn load-scene-assimp (ctx path)
                     bottle.asset.load-texture buf
                 else (raise ImporterError.UnsupportedFileType)
 
+    local materials : (Map u32 Material)
     for i in (range scene-data.mNumMaterials)
         mat-data := scene-data.mMaterials @ i
 
@@ -115,14 +116,98 @@ fn load-scene-assimp (ctx path)
                 translate-wrap-mode (props.wrap-mode @ 1)
                 WM.ClampToEdge
 
-            material :=
+            'set materials i
                 Material
                     color-map =
                         SampledTexture
                             texture = texture
                             sampler = ('acquire-sampler ctx u v w 'Linear 'Linear 'Linear)
 
-        # TODO: cache materials? Just copy them around and let reference counting take the wheel?
+    struct Scene
+        meshes : (Array Mesh)
+        nodes : (ArrayMap 3DNode)
+
+    local scene : Scene
+    local mesh-map : (Map u32 usize)
+
+    # TODO: mesh reuse across different scenes
+    for i in (range scene-data.mNumMeshes)
+        mesh-data := scene-data.mMeshes @ i
+        if (not (mesh-data.mPrimitiveTypes & assimp.PrimitiveType.TRIANGLE))
+            continue;
+
+        vertex-count := mesh-data.mNumVertices
+        index-count := mesh-data.mNumFaces * 3
+
+        # TODO: default material
+        material := copy ('get materials mesh-data.mMaterialIndex)
+
+        mesh :=
+            Mesh
+                vertices = typeinit vertex-count
+                indices = typeinit index-count
+                material = material
+
+        label copy-vertices
+            'resize ctx.vertex-data vertex-count
+            for idx v in (enumerate ctx.vertex-data)
+                v.position = mesh-data.mVertices @ idx
+
+            # NOTE: obviously these are incomplete, but should be enough for a first version.
+            if ((mesh-data.mColors @ 0) != null)
+                for idx v in (enumerate ctx.vertex-data)
+                    v.color = (mesh-data.mColors @ 0) @ idx
+                    v.color.w = 1
+
+            if ((mesh-data.mTextureCoords @ 0) != null)
+                for idx v in (enumerate ctx.vertex-data)
+                    tc := (mesh-data.mTextureCoords @ 0) @ idx
+                    v.texcoords = (vec2 tc.x tc.y)
+
+            if (mesh-data.mNormals != null)
+                for idx v in (enumerate ctx.vertex-data)
+                    v.normal = mesh-data.mNormals @ idx
+
+            'frame-write mesh.vertices ctx.vertex-data
+
+        label copy-indices
+            'resize ctx.index-data index-count
+            for i in (range mesh-data.mNumFaces)
+                idx := i * 3
+                ctx.index-data @ (idx + 0) = ((mesh-data.mFaces @ i) . mIndices) @ 0
+                ctx.index-data @ (idx + 1) = ((mesh-data.mFaces @ i) . mIndices) @ 1
+                ctx.index-data @ (idx + 2) = ((mesh-data.mFaces @ i) . mIndices) @ 2
+            'frame-write mesh.indices ctx.index-data
+
+        'set mesh-map i (countof scene.meshes)
+        'append scene.meshes mesh
+
+    fn traverse-scene-tree (scene mesh-index-map parent node)
+        returning void
+
+        local mesh-indices : (Array u32)
+        for i in (range node.mNumMeshes)
+            try ('get mesh-index-map (node.mMeshes @ i))
+            then (idx) ('append mesh-indices idx)
+            else () # ignored mesh
+
+        node :=
+            3DNode
+                parent = parent
+                transform = (imply next.mTransformation)
+                inner =
+                    3DNodeKind.MeshObject mesh-indices
+
+        id := 'add scene.nodes node
+        for i in (range next.mNumChildren)
+            this-function scene mesh-index-map id (next.mChildren @ i)
+
+    local scene : Scene
+    for k v in meshes
+        'append scene.meshes (copy v)
+
+    traverse-scene-tree scene mesh-map 0:u32 scene-data.mRootNode
+    scene
 
 struct ResourceManager
     textures : (Map String Texture)
