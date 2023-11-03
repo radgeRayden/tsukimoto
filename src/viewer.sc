@@ -1,4 +1,4 @@
-using import Array Option radl.strfmt String struct
+using import Array Option radl.strfmt .ResourceManager String struct
 import .assimp .importer .renderer
 import bottle
 
@@ -41,8 +41,6 @@ fn import-selected-scene ()
     then (scene-data)
         try (renderer.load-scene scene-data)
         else ()
-        # FIXME: manage this automatically
-        assimp.ReleaseImport scene-data
     else ()
 
 @@ 'on bottle.load
